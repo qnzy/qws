@@ -22,12 +22,21 @@
   
 void serve(int sockfd) 
 { 
-    char buff[BUFLEN]; 
+    char buf[BUFLEN]; 
     int len;
+    char * ptr;
     struct timeval tv = {.tv_sec = RECV_TIMEOUT}; 
     if ((setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)))<0) { FATAL("setsockopt error"); }
-    if ((len = recv(sockfd, buff, sizeof(buff), 0))<0) { return; }
-    printf("%s\n", buff);
+    if ((len = recv(sockfd, buf, sizeof(buf), 0))<0) { return; }
+
+    ptr = strtok(buf, " ");
+    while(ptr!=NULL) {
+        printf("token: %s\n", ptr);
+        ptr = strtok(NULL, " ");
+    }
+
+    //ptr = tolower(strtok(buf, " ")); if (!strcmp(ptr, "get")) printf("get\n");
+    //ptr = strtok(NULL, " "); if (ptr!=NULL) printf("url=%s\n", ptr);
 } 
 
 void usage() {
@@ -41,36 +50,43 @@ void usage() {
   
 int main(int argc, char ** argv) 
 { 
-    // TODO: 
-    // - parse options (path, port)
-    // - handle requests
-    // - some kind of timeout
-
-    int dirset = 0, portset = 0;
-    char * dir, * portstr;
+    int dirset = 0;
+    char defaultdir[]=".";
+    char * dir = defaultdir;
+    unsigned int port = 80;
     for (int i=1; i<argc; i++) {
         if (!strcmp(argv[i], "-h")) usage();
-        if (!strcmp(argv[i], "--help")) usage();
+        else if (!strcmp(argv[i], "--help")) usage();
         else if (!dirset) {dir = argv[i]; dirset = 1;}
-        else {portstr = argv[i]; portset = 1;}
+        else port = atoi(argv[i]);
+        if (port == 0) {usage();}
     }
-    if (dirset) printf("dir=%s\n", dir); else printf("dir=.\n");
-    if (portset) printf("port=%s\n", portstr); else printf("port=80\n");
+    printf("starting ffws: serving %s on port %d\n", dir, port);
     for (;;) {
         int sockfd, connfd;
         unsigned int len; 
         struct sockaddr_in addr, cli; 
         int enable = 1;
-        if ((sockfd = socket(AF_INET, SOCK_STREAM, 0))==-1) { FATAL("socket error"); } 
-        if ((setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)))<0) { FATAL("setsockopt error"); }
+        if ((sockfd = socket(AF_INET, SOCK_STREAM, 0))==-1) {
+            FATAL("socket error"); 
+        } 
+        if ((setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)))<0) { 
+            FATAL("setsockopt error"); 
+        }
         bzero(&addr, sizeof(addr)); 
         addr.sin_family = AF_INET; 
         addr.sin_addr.s_addr = htonl(INADDR_ANY); 
         addr.sin_port = htons(PORT); 
-        if ((bind(sockfd, (struct sockaddr*)&addr, sizeof(addr))) != 0) { FATAL("bind error"); } 
-        if ((listen(sockfd, 5)) != 0) { FATAL("listen error"); } 
+        if ((bind(sockfd, (struct sockaddr*)&addr, sizeof(addr))) != 0) {
+            FATAL("bind error");
+        } 
+        if ((listen(sockfd, 5)) != 0) {
+            FATAL("listen error");
+        } 
         len = sizeof(cli); 
-        if ((connfd = accept(sockfd, (struct sockaddr*)&cli, &len)) < 0) { FATAL("accept error"); } 
+        if ((connfd = accept(sockfd, (struct sockaddr*)&cli, &len)) < 0) {
+            FATAL("accept error");
+        } 
         serve(connfd); 
         close(sockfd); 
     }
