@@ -17,8 +17,30 @@
 #define RECV_TIMEOUT 10
 #include <unistd.h>
 #include <string.h>
+#include <ctype.h>
 
 #define FATAL(msg) do {fprintf(stderr, "uttpd: %s (%s:%d)\n", msg, __FILE__, __LINE__);exit(EXIT_FAILURE);} while(0);
+
+char * get_line(char *buffer, int *idx, int len) {
+    int start = *idx;
+    if (start < 0) {
+        return NULL;
+    }
+    int i; 
+    for (i = start; i<len; i++) {
+        if (buffer[i]=='\n') {
+            buffer[i] = '\0';
+            break;
+        }
+    }
+    if (i < len-1) {
+        *idx = i+1;
+    } else {
+        *idx = -1;
+    }
+    return &buffer[start];
+    
+}
   
 void serve(int sockfd) 
 { 
@@ -26,14 +48,26 @@ void serve(int sockfd)
     int len;
     char * ptr;
     struct timeval tv = {.tv_sec = RECV_TIMEOUT}; 
-    if ((setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)))<0) { FATAL("setsockopt error"); }
-    if ((len = recv(sockfd, buf, sizeof(buf), 0))<0) { return; }
-
-    ptr = strtok(buf, " ");
-    while(ptr!=NULL) {
-        printf("token: %s\n", ptr);
-        ptr = strtok(NULL, " ");
+    if ((setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)))<0) { 
+        FATAL("setsockopt error"); 
     }
+    if ((len = recv(sockfd, buf, sizeof(buf), 0))<0) { return; }
+    int idx=0;
+    while((ptr = get_line(buf, &idx, len))!=NULL) {
+        while (isspace(*ptr)) {
+            ptr++;
+            if (*ptr == '\0') {
+                break;
+            }
+        }
+        printf("LINE: %s\n", ptr);
+    }
+
+//    ptr = strtok(buf, " ");
+//    while(ptr!=NULL) {
+//        printf("token: %s\n", ptr);
+//        ptr = strtok(NULL, " ");
+//    }
 
     //ptr = tolower(strtok(buf, " ")); if (!strcmp(ptr, "get")) printf("get\n");
     //ptr = strtok(NULL, " "); if (ptr!=NULL) printf("url=%s\n", ptr);
