@@ -46,31 +46,23 @@ void serve(int sockfd)
 { 
     char buf[BUFLEN]; 
     int len;
-    char * ptr;
+    char * lineptr;
     struct timeval tv = {.tv_sec = RECV_TIMEOUT}; 
     if ((setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)))<0) { 
         FATAL("setsockopt error"); 
     }
     if ((len = recv(sockfd, buf, sizeof(buf), 0))<0) { return; }
     int idx=0;
-    while((ptr = get_line(buf, &idx, len))!=NULL) {
-        while (isspace(*ptr)) {
-            ptr++;
-            if (*ptr == '\0') {
-                break;
-            }
+    while((lineptr = get_line(buf, &idx, len))!=NULL) {
+        char * tokptr = strtok(lineptr, " ");
+        if (tokptr==NULL) { continue; }
+        if (!strcmp(tokptr, "GET")) {
+            printf("GET: ");
+            tokptr = strtok(NULL, " ");
+            if (tokptr==NULL) { continue; }
+            printf("%s\n", tokptr);
         }
-        printf("LINE: %s\n", ptr);
     }
-
-//    ptr = strtok(buf, " ");
-//    while(ptr!=NULL) {
-//        printf("token: %s\n", ptr);
-//        ptr = strtok(NULL, " ");
-//    }
-
-    //ptr = tolower(strtok(buf, " ")); if (!strcmp(ptr, "get")) printf("get\n");
-    //ptr = strtok(NULL, " "); if (ptr!=NULL) printf("url=%s\n", ptr);
 } 
 
 void usage() {
