@@ -8,8 +8,8 @@ DEPS =
 
 all: build
 
-build: ffws.o
-	$(CC) -o ffws ffws.o
+build: qws.o
+	$(CC) -o qws qws.o
 
 clean:
-	rm -f *.o ffws
+	rm -f *.o qws
