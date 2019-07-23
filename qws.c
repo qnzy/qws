@@ -1,25 +1,29 @@
 /*
- * ffws: feature free web server
- * (basically a http/0.9 server)
+ * qws: web server
+ * yves kunz 2019
+ * Public Domain / CC0
  */
 
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
+#include <unistd.h>
 #include <netdb.h> 
 #include <netinet/in.h> 
 #include <stdlib.h> 
 #include <string.h> 
 #include <sys/socket.h> 
 #include <sys/types.h> 
-#define BUFLEN 1024
-#define PORT 8080 
-#define RECV_TIMEOUT 10
-#include <unistd.h>
-#include <string.h>
-#include <ctype.h>
+#include <sys/stat.h>
+#include <dirent.h>
 
-#define FATAL(msg) do {fprintf(stderr, "uttpd: %s (%s:%d)\n", msg, __FILE__, __LINE__);exit(EXIT_FAILURE);} while(0);
+#define BUFLEN 1024
+#define RECV_TIMEOUT 10
+#define PROGNAME "qws"
+
+#define FATAL(msg) do {fprintf(stderr, PROGNAME": %s (%s:%d)\n", msg, __FILE__, __LINE__);exit(EXIT_FAILURE);} while(0);
 
 char * get_line(char *buffer, int *idx, int len) {
     int start = *idx;
@@ -39,7 +43,17 @@ char * get_line(char *buffer, int *idx, int len) {
         *idx = -1;
     }
     return &buffer[start];
-    
+}
+
+bool isDir(const char *path) {
+   struct stat statbuf;
+   if (stat(path, &statbuf) != 0)
+       return 0;
+   return S_ISDIR(statbuf.st_mode);
+}
+
+void sockSend(int sockfd, const char* str) {
+    send(sockfd, str, strlen(str), 0);
 }
   
 void serve(int sockfd) 
@@ -57,18 +71,55 @@ void serve(int sockfd)
         char * tokptr = strtok(lineptr, " ");
         if (tokptr==NULL) { continue; }
         if (!strcmp(tokptr, "GET")) {
-            printf("GET: ");
+            //printf("GET: ");
             tokptr = strtok(NULL, " ");
             if (tokptr==NULL) { continue; }
-            printf("%s\n", tokptr);
+            char filepath[1024];
+            if (tokptr[0] == '/') {
+                filepath[0] = '.';
+                filepath[1] = '\0';
+                strcat(filepath, tokptr);
+            } else {
+                filepath[0] = '\0';
+                strcat(filepath, tokptr);
+            }
+            if (isDir(filepath)) {
+                DIR *d;
+                struct dirent *dir;
+                d = opendir(filepath);
+                sockSend(sockfd, "HTTP/1.0 200 \n\n");
+                sockSend(sockfd, "<!DOCTYPE html><html><head><title>DIR</title></head><body>\n");
+                while ((dir = readdir(d)) != NULL) {
+                    sockSend(sockfd, "<li>\n");
+                    sockSend(sockfd, dir->d_name);
+                }
+                closedir(d);
+                sockSend(sockfd, "</body></html>\n");
+                printf(" DIR ");
+            } else {
+                FILE * fp;
+                const int bufsize = 1024;
+                char buf[bufsize];
+                if ((fp=fopen(filepath, "r")) == NULL) {
+                    sockSend(sockfd, "HTTP/1.0 404 \n\n");
+                    sockSend(sockfd, "<!DOCTYPE html><html>"
+                            "<head><title>Error</title></head>"
+                            "<body>file not found</body></html>\n");
+                    return;
+                }
+                sockSend(sockfd, "HTTP/1.0 200 \n\n");
+                while ((fgets(buf, bufsize, fp))!=NULL) {
+                    sockSend(sockfd, buf);
+                }
+            }
         }
     }
 } 
 
 void usage() {
-    printf("ffws [DIR [PORT]] [-h]\n");
+    printf(PROGNAME" [DIR [PORT]] [-h]\n");
     printf("serve files on http\n");
-    printf("  DIR  : directory to serve, defaults to .\n");
+    printf("  DIR  : directory to serve, defaults to current directory\n");
     printf("  PORT : port, defaults to 80\n");
     printf("  -h   : this help\n");
     exit(EXIT_SUCCESS);
@@ -87,7 +138,7 @@ int main(int argc, char ** argv)
         else port = atoi(argv[i]);
         if (port == 0) {usage();}
     }
-    printf("starting ffws: serving %s on port %d\n", dir, port);
+    printf("starting "PROGNAME": serving %s on port %d\n", dir, port);
     for (;;) {
         int sockfd, connfd;
         unsigned int len; 
@@ -102,7 +153,7 @@ int main(int argc, char ** argv)
         bzero(&addr, sizeof(addr)); 
         addr.sin_family = AF_INET; 
         addr.sin_addr.s_addr = htonl(INADDR_ANY); 
-        addr.sin_port = htons(PORT); 
+        addr.sin_port = htons(port); 
         if ((bind(sockfd, (struct sockaddr*)&addr, sizeof(addr))) != 0) {
             FATAL("bind error");
         } 
@@ -114,6 +165,7 @@ int main(int argc, char ** argv)
             FATAL("accept error");
         } 
         serve(connfd); 
+        close(connfd);
         close(sockfd); 
     }
 } 
