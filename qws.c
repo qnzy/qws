@@ -19,7 +19,6 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
-#define BUFLEN 1024
 #define RECV_TIMEOUT 10
 #define PROGNAME "qws"
 
@@ -56,50 +55,59 @@ void sockSend(int sockfd, const char* str) {
     send(sockfd, str, strlen(str), 0);
 }
   
-void serve(int sockfd) 
+void serve(int sockfd, char* dir) 
 { 
-    char buf[BUFLEN]; 
+    const unsigned int rxbuflen = 1024;
+    char rxbuf[rxbuflen]; 
     int len;
     char * lineptr;
     struct timeval tv = {.tv_sec = RECV_TIMEOUT}; 
     if ((setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)))<0) { 
         FATAL("setsockopt error"); 
     }
-    if ((len = recv(sockfd, buf, sizeof(buf), 0))<0) { return; }
+    if ((len = recv(sockfd, rxbuf, sizeof(rxbuf), 0))<0) { return; }
     int idx=0;
-    while((lineptr = get_line(buf, &idx, len))!=NULL) {
+    while((lineptr = get_line(rxbuf, &idx, len))!=NULL) {
         char * tokptr = strtok(lineptr, " ");
         if (tokptr==NULL) { continue; }
         if (!strcmp(tokptr, "GET")) {
-            //printf("GET: ");
             tokptr = strtok(NULL, " ");
             if (tokptr==NULL) { continue; }
-            char filepath[1024];
+            const unsigned int filepathlen = 1024;
+            char filepath[filepathlen];
             if (tokptr[0] == '/') {
                 filepath[0] = '.';
                 filepath[1] = '\0';
-                strcat(filepath, tokptr);
+                snprintf(filepath, filepathlen, "%s.%s", dir, tokptr);
             } else {
                 filepath[0] = '\0';
                 strcat(filepath, tokptr);
+                snprintf(filepath, filepathlen, "%s%s", dir, tokptr);
             }
             if (isDir(filepath)) {
+                if(filepath[strlen(filepath)-1] != '/') {
+                    strcat(filepath, "/");
+                }
                 DIR *d;
                 struct dirent *dir;
                 d = opendir(filepath);
                 sockSend(sockfd, "HTTP/1.0 200 \n\n");
                 sockSend(sockfd, "<!DOCTYPE html><html><head><title>DIR</title></head><body>\n");
                 while ((dir = readdir(d)) != NULL) {
-                    sockSend(sockfd, "<li>\n");
+                    sockSend(sockfd, "<li><a href=");
+                    sockSend(sockfd, filepath);
                     sockSend(sockfd, dir->d_name);
+                    sockSend(sockfd, ">");
+                    sockSend(sockfd, dir->d_name);
+                    sockSend(sockfd, "</a>\n");
+
                 }
                 closedir(d);
                 sockSend(sockfd, "</body></html>\n");
-                printf(" DIR ");
             } else {
                 FILE * fp;
-                const int bufsize = 1024;
-                char buf[bufsize];
+                const unsigned int readbuflen = 1024;
+                char readbuf[readbuflen];
                 if ((fp=fopen(filepath, "r")) == NULL) {
                     sockSend(sockfd, "HTTP/1.0 404 \n\n");
                     sockSend(sockfd, "<!DOCTYPE html><html>"
@@ -108,8 +116,8 @@ void serve(int sockfd)
                     return;
                 }
                 sockSend(sockfd, "HTTP/1.0 200 \n\n");
-                while ((fgets(buf, bufsize, fp))!=NULL) {
-                    sockSend(sockfd, buf);
+                while ((fgets(readbuf, readbuflen, fp))!=NULL) {
+                    sockSend(sockfd, readbuf);
                 }
             }
         }
@@ -138,6 +146,9 @@ int main(int argc, char ** argv)
         else port = atoi(argv[i]);
         if (port == 0) {usage();}
     }
+    if(dir[strlen(dir)-1] != '/') {
+        strcat(dir, "/");
+    }
     printf("starting "PROGNAME": serving %s on port %d\n", dir, port);
     for (;;) {
         int sockfd, connfd;
@@ -164,7 +175,7 @@ int main(int argc, char ** argv)
         if ((connfd = accept(sockfd, (struct sockaddr*)&cli, &len)) < 0) {
             FATAL("accept error");
         } 
-        serve(connfd); 
+        serve(connfd, dir); 
         close(connfd);
         close(sockfd); 
     }
