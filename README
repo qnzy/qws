@@ -1,0 +1,11 @@
+qws, a minimalistic web serveer
+
+Usage:
+
+qws [DIR [PORT]] [-h]
+serve files on http
+   DIR  : directory to serve, defaults to current directory
+   PORT : port, defaults to 80      
+   -h   : this help
+
+Public Domain / CC0
