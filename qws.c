@@ -76,14 +76,11 @@ void serve(int sockfd, char* dir)
             const unsigned int filepathlen = 1024;
             char filepath[filepathlen];
             if (tokptr[0] == '/') {
-                filepath[0] = '.';
-                filepath[1] = '\0';
                 snprintf(filepath, filepathlen, "%s.%s", dir, tokptr);
             } else {
-                filepath[0] = '\0';
-                strcat(filepath, tokptr);
                 snprintf(filepath, filepathlen, "%s%s", dir, tokptr);
             }
+            //printf("GET %s\n", filepath);
             if (isDir(filepath)) {
                 if(filepath[strlen(filepath)-1] != '/') {
                     strcat(filepath, "/");
@@ -95,7 +92,9 @@ void serve(int sockfd, char* dir)
                 sockSend(sockfd, "<!DOCTYPE html><html><head><title>DIR</title></head><body>\n");
                 while ((dir = readdir(d)) != NULL) {
                     sockSend(sockfd, "<li><a href=");
-                    sockSend(sockfd, filepath);
+                    if (tokptr[0] != '/') { sockSend(sockfd, "/"); }
+                    sockSend(sockfd, tokptr); 
+                    if (tokptr[strlen(tokptr)-1]!='/') { sockSend(sockfd, "/"); }
                     sockSend(sockfd, dir->d_name);
                     sockSend(sockfd, ">");
                     sockSend(sockfd, dir->d_name);
