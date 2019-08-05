@@ -145,6 +145,53 @@ void encodeStr(char * src, char * dst) {
 
 }
   
+void listDir(int sockfd, char * url, char *path) {
+    if(path[strlen(path)-1] != '/') {
+        strcat(path, "/");
+    }
+    DIR *d;
+    struct dirent *dir;
+    d = opendir(path);
+    sockSend(sockfd, "HTTP/1.0 200 \n\n");
+    sockSend(sockfd, "<!DOCTYPE html><html><head><title>DIR</title></head><body>\n");
+    while ((dir = readdir(d)) != NULL) {
+        char urlDir[1024]="";
+        char urlDirEncoded[1024]="";
+        sockSend(sockfd, "<li><a href=");
+        if (url[0] != '/') { strcat(urlDir, "/"); }
+        strcat(urlDir, url);
+        if (url[strlen(url)-1]!='/') { strcat(urlDir, "/"); }
+        strcat(urlDir, dir->d_name);
+        encodeStr(urlDir, urlDirEncoded);
+        sockSend(sockfd, urlDirEncoded);
+        sockSend(sockfd, ">");
+        sockSend(sockfd, dir->d_name);
+        sockSend(sockfd, "</a>\n");
+    }
+    closedir(d);
+    sockSend(sockfd, "</body></html>\n");
+}
+
+void sendFile(int sockfd, char * path) {
+    FILE * fp;
+    const unsigned int readbuflen = 1024;
+    int bytesRead = 0;
+    char readbuf[readbuflen];
+    if ((fp=fopen(path, "rb")) == NULL) {
+        printf("...not found\n");
+        sockSend(sockfd, "HTTP/1.0 404 \n\n");
+        sockSend(sockfd, "<!DOCTYPE html><html>"
+                "<head><title>Error</title></head>"
+                "<body>file not found</body></html>\n");
+        return;
+    }
+    sockSend(sockfd, "HTTP/1.0 200 \n\n");
+    while((bytesRead = fread(readbuf, sizeof(readbuf[0]), readbuflen, fp))==readbuflen) {
+        send(sockfd, readbuf, bytesRead, 0);
+    }
+    send(sockfd, readbuf, bytesRead, 0);
+}
+
 void serve(int sockfd, char* dir) 
 { 
     const unsigned int rxbuflen = 1024;
@@ -165,7 +212,6 @@ void serve(int sockfd, char* dir)
             url = strtok(NULL, " ");
             if (url==NULL) { continue; }
             decodeStr(url, decodedUrl);
-            printf("url: %s ; decodedUrl: %s\n", url, decodedUrl);
             const unsigned int filepathlen = 1024;
             char filepath[filepathlen];
             if (decodedUrl[0] == '/') {
@@ -173,49 +219,11 @@ void serve(int sockfd, char* dir)
             } else {
                 snprintf(filepath, filepathlen, "%s%s", dir, decodedUrl);
             }
-            printf("GET %s\n", filepath);
+            printf("accessing %s\n", filepath);
             if (isDir(filepath)) {
-                if(filepath[strlen(filepath)-1] != '/') {
-                    strcat(filepath, "/");
-                }
-                DIR *d;
-                struct dirent *dir;
-                d = opendir(filepath);
-                sockSend(sockfd, "HTTP/1.0 200 \n\n");
-                sockSend(sockfd, "<!DOCTYPE html><html><head><title>DIR</title></head><body>\n");
-                while ((dir = readdir(d)) != NULL) {
-                    char urlDir[1024]="";
-                    char urlDirEncoded[1024]="";
-                    sockSend(sockfd, "<li><a href=");
-                    if (decodedUrl[0] != '/') { strcat(urlDir, "/"); }
-                    strcat(urlDir, decodedUrl);
-                    if (decodedUrl[strlen(decodedUrl)-1]!='/') { strcat(urlDir, "/"); }
-                    strcat(urlDir, dir->d_name);
-                    encodeStr(urlDir, urlDirEncoded);
-                    sockSend(sockfd, urlDirEncoded);
-                    sockSend(sockfd, ">");
-                    sockSend(sockfd, dir->d_name);
-                    sockSend(sockfd, "</a>\n");
-                }
-                closedir(d);
-                sockSend(sockfd, "</body></html>\n");
+                listDir(sockfd, decodedUrl, filepath);
             } else {
-                FILE * fp;
-                const unsigned int readbuflen = 1024;
-                int bytesRead = 0;
-                char readbuf[readbuflen];
-                if ((fp=fopen(filepath, "rb")) == NULL) {
-                    sockSend(sockfd, "HTTP/1.0 404 \n\n");
-                    sockSend(sockfd, "<!DOCTYPE html><html>"
-                            "<head><title>Error</title></head>"
-                            "<body>file not found</body></html>\n");
-                    return;
-                }
-                sockSend(sockfd, "HTTP/1.0 200 \n\n");
-                while((bytesRead = fread(readbuf, sizeof(readbuf[0]), readbuflen, fp))==readbuflen) {
-                    send(sockfd, readbuf, bytesRead, 0);
-                }
-                send(sockfd, readbuf, bytesRead, 0);
+                sendFile(sockfd, filepath);
             }
         }
     }
