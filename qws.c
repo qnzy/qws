@@ -163,7 +163,6 @@ void serve(int sockfd, char* dir)
         if (url==NULL) { continue; }
         if (!strcmp(url, "GET")) {
             url = strtok(NULL, " ");
-            // TODO: collect whole line (currently failing on files with spaces)
             if (url==NULL) { continue; }
             decodeStr(url, decodedUrl);
             printf("url: %s ; decodedUrl: %s\n", url, decodedUrl);
@@ -203,6 +202,7 @@ void serve(int sockfd, char* dir)
             } else {
                 FILE * fp;
                 const unsigned int readbuflen = 1024;
+                int bytesRead = 0;
                 char readbuf[readbuflen];
                 if ((fp=fopen(filepath, "rb")) == NULL) {
                     sockSend(sockfd, "HTTP/1.0 404 \n\n");
@@ -212,10 +212,10 @@ void serve(int sockfd, char* dir)
                     return;
                 }
                 sockSend(sockfd, "HTTP/1.0 200 \n\n");
-                // TODO: use fread, binary not working atm
-                while ((fgets(readbuf, readbuflen, fp))!=NULL) {
-                    sockSend(sockfd, readbuf);
+                while((bytesRead = fread(readbuf, sizeof(readbuf[0]), readbuflen, fp))==readbuflen) {
+                    send(sockfd, readbuf, bytesRead, 0);
                 }
+                send(sockfd, readbuf, bytesRead, 0);
             }
         }
     }
