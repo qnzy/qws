@@ -24,6 +24,45 @@
 
 #define FATAL(msg) do {fprintf(stderr, PROGNAME": %s (%s:%d)\n", msg, __FILE__, __LINE__);exit(EXIT_FAILURE);} while(0);
 
+
+struct urlEncodingEl_s {
+    uint8_t code;
+    char character;
+    bool encode;
+};
+
+const struct urlEncodingEl_s urlEncodingTable[] = {
+    {.code = 0x20, .character = ' ', true},
+    {.code = 0x21, .character = '!', true},
+    {.code = 0x22, .character = '"', true},
+    {.code = 0x23, .character = '#', true},
+    {.code = 0x24, .character = '$', true},
+    {.code = 0x25, .character = '%', true},
+    {.code = 0x26, .character = '&', true},
+    {.code = 0x27, .character = '\'', true},
+    {.code = 0x28, .character = '(', true},
+    {.code = 0x29, .character = ')', true},
+    {.code = 0x2a, .character = '*', true},
+    {.code = 0x2b, .character = '+', true},
+    {.code = 0x2c, .character = ',', true},
+    {.code = 0x2d, .character = '-', true},
+    {.code = 0x2e, .character = '.', false}, // keep period
+    {.code = 0x2f, .character = '/', false}, // keep slash
+    {.code = 0x3a, .character = ':', true},
+    {.code = 0x2b, .character = ';', true},
+    {.code = 0x3c, .character = '<', true},
+    {.code = 0x3d, .character = '=', true},
+    {.code = 0x3e, .character = '>', true},
+    {.code = 0x3f, .character = '?', true},
+    {.code = 0x40, .character = '@', true},
+    {.code = 0x5b, .character = '[', true},
+    {.code = 0x5c, .character = '\\', true},
+    {.code = 0x5d, .character = ']', true},
+    {.code = 0x7b, .character = '{', true},
+    {.code = 0x7c, .character = '|', true},
+    {.code = 0x7d, .character = '}', true}
+};
+
 char * get_line(char *buffer, int *idx, int len) {
     int start = *idx;
     if (start < 0) {
@@ -54,6 +93,57 @@ bool isDir(const char *path) {
 void sockSend(int sockfd, const char* str) {
     send(sockfd, str, strlen(str), 0);
 }
+
+void decodeStr(char * src, char * dst) {
+    int j=0;
+    for (int i=0; i<strlen(src); i++) {
+        if (src[i]!='%') {
+            dst[j++] = src[i];
+        } else {
+            if (strlen(src)-i<2) {
+                break;
+            }
+            char byte_code[3];
+            byte_code[0]=src[++i];
+            byte_code[1]=src[++i];
+            byte_code[2]='\0';
+            uint8_t byte_code_i = strtoul(byte_code, 0, 16);
+            int urlEncodingTableLength = sizeof(urlEncodingTable)/sizeof(urlEncodingTable[0]);
+            for (int k=0; k<urlEncodingTableLength; k++) {
+                if (urlEncodingTable[k].code == byte_code_i) {
+                    dst[j++]=urlEncodingTable[k].character;
+                    break;
+                }
+            }
+        }
+    }
+    dst[j++]='\0';
+}
+
+void encodeStr(char * src, char * dst) {
+    int urlEncodingTableLength = sizeof(urlEncodingTable)/sizeof(urlEncodingTable[0]);
+    int k=0;
+    char encoding[4];
+    bool encoded;
+    for (int i=0; i<strlen(src); i++) {
+        encoded = false;
+        for (int j=0; j<urlEncodingTableLength; j++) {
+            if (urlEncodingTable[j].character==src[i] && urlEncodingTable[j].encode) {
+                sprintf(encoding,"%%%x", urlEncodingTable[j].code);
+                dst[k++]=encoding[0];
+                dst[k++]=encoding[1];
+                dst[k++]=encoding[2];
+                encoded = true;
+                break; //only one encoding possible
+            }
+        }
+        if (!encoded) {
+            dst[k++]=src[i];
+        }
+    }
+    dst[k++]='\0';
+
+}
   
 void serve(int sockfd, char* dir) 
 { 
@@ -68,19 +158,23 @@ void serve(int sockfd, char* dir)
     if ((len = recv(sockfd, rxbuf, sizeof(rxbuf), 0))<0) { return; }
     int idx=0;
     while((lineptr = get_line(rxbuf, &idx, len))!=NULL) {
-        char * tokptr = strtok(lineptr, " ");
-        if (tokptr==NULL) { continue; }
-        if (!strcmp(tokptr, "GET")) {
-            tokptr = strtok(NULL, " ");
-            if (tokptr==NULL) { continue; }
+        char * url = strtok(lineptr, " ");
+        char decodedUrl[rxbuflen]; 
+        if (url==NULL) { continue; }
+        if (!strcmp(url, "GET")) {
+            url = strtok(NULL, " ");
+            // TODO: collect whole line (currently failing on files with spaces)
+            if (url==NULL) { continue; }
+            decodeStr(url, decodedUrl);
+            printf("url: %s ; decodedUrl: %s\n", url, decodedUrl);
             const unsigned int filepathlen = 1024;
             char filepath[filepathlen];
-            if (tokptr[0] == '/') {
-                snprintf(filepath, filepathlen, "%s.%s", dir, tokptr);
+            if (decodedUrl[0] == '/') {
+                snprintf(filepath, filepathlen, "%s.%s", dir, decodedUrl);
             } else {
-                snprintf(filepath, filepathlen, "%s%s", dir, tokptr);
+                snprintf(filepath, filepathlen, "%s%s", dir, decodedUrl);
             }
-            //printf("GET %s\n", filepath);
+            printf("GET %s\n", filepath);
             if (isDir(filepath)) {
                 if(filepath[strlen(filepath)-1] != '/') {
                     strcat(filepath, "/");
@@ -91,15 +185,18 @@ void serve(int sockfd, char* dir)
                 sockSend(sockfd, "HTTP/1.0 200 \n\n");
                 sockSend(sockfd, "<!DOCTYPE html><html><head><title>DIR</title></head><body>\n");
                 while ((dir = readdir(d)) != NULL) {
+                    char urlDir[1024]="";
+                    char urlDirEncoded[1024]="";
                     sockSend(sockfd, "<li><a href=");
-                    if (tokptr[0] != '/') { sockSend(sockfd, "/"); }
-                    sockSend(sockfd, tokptr); 
-                    if (tokptr[strlen(tokptr)-1]!='/') { sockSend(sockfd, "/"); }
-                    sockSend(sockfd, dir->d_name);
+                    if (decodedUrl[0] != '/') { strcat(urlDir, "/"); }
+                    strcat(urlDir, decodedUrl);
+                    if (decodedUrl[strlen(decodedUrl)-1]!='/') { strcat(urlDir, "/"); }
+                    strcat(urlDir, dir->d_name);
+                    encodeStr(urlDir, urlDirEncoded);
+                    sockSend(sockfd, urlDirEncoded);
                     sockSend(sockfd, ">");
                     sockSend(sockfd, dir->d_name);
                     sockSend(sockfd, "</a>\n");
-
                 }
                 closedir(d);
                 sockSend(sockfd, "</body></html>\n");
@@ -107,7 +204,7 @@ void serve(int sockfd, char* dir)
                 FILE * fp;
                 const unsigned int readbuflen = 1024;
                 char readbuf[readbuflen];
-                if ((fp=fopen(filepath, "r")) == NULL) {
+                if ((fp=fopen(filepath, "rb")) == NULL) {
                     sockSend(sockfd, "HTTP/1.0 404 \n\n");
                     sockSend(sockfd, "<!DOCTYPE html><html>"
                             "<head><title>Error</title></head>"
@@ -115,6 +212,7 @@ void serve(int sockfd, char* dir)
                     return;
                 }
                 sockSend(sockfd, "HTTP/1.0 200 \n\n");
+                // TODO: use fread, binary not working atm
                 while ((fgets(readbuf, readbuflen, fp))!=NULL) {
                     sockSend(sockfd, readbuf);
                 }
@@ -135,19 +233,19 @@ void usage() {
 int main(int argc, char ** argv) 
 { 
     int dirset = 0;
-    char defaultdir[]=".";
-    char * dir = defaultdir;
+    char dir[1024] = ".";
     unsigned int port = 80;
     for (int i=1; i<argc; i++) {
         if (!strcmp(argv[i], "-h")) usage();
         else if (!strcmp(argv[i], "--help")) usage();
-        else if (!dirset) {dir = argv[i]; dirset = 1;}
+        else if (!dirset) {strcpy(dir, argv[i]); dirset = 1;}
         else port = atoi(argv[i]);
         if (port == 0) {usage();}
     }
     if(dir[strlen(dir)-1] != '/') {
         strcat(dir, "/");
     }
+
     printf("starting "PROGNAME": serving %s on port %d\n", dir, port);
     for (;;) {
         int sockfd, connfd;
