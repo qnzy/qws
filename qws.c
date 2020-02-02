@@ -1,6 +1,5 @@
 /*
  * qws: web server
- * yves kunz 2019
  * Public Domain / CC0
  */
 
